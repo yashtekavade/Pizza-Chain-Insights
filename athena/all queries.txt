@@ -1,0 +1,81 @@
+Queries to run.
+Top 5 Selling SKUs per Store in the Last 7 Days
+WITH recent_orders AS (
+ SELECT order_id, store_id
+ FROM pizzadb_orders
+ WHERE CAST(order_time AS TIMESTAMP) >= current_date - INTERVAL '7' day
+),
+sku_sales AS (
+ SELECT r.store_id, oi.sku_id, SUM(oi.quantity) AS qty
+ FROM pizzadb_orders_items oi
+ JOIN recent_orders r ON oi.order_id = r.order_id
+ GROUP BY r.store_id, oi.sku_id
+)
+SELECT s.store_id, s.sku_id, m.item_name, s.qty
+FROM (
+ SELECT *, ROW_NUMBER() OVER (PARTITION BY store_id ORDER BY qty DESC) AS 
+rnk
+ FROM sku_sales
+) s
+JOIN pizzadb_sku_master m ON s.sku_id = m.sku_id
+WHERE rnk <= 5
+ORDER BY s.store_id, rnk;
+Category-wise Revenue Breakdown with Discounts Applied 
+SELECT 
+ category,
+ SUM(item_total) AS revenue,
+ SUM(discount_amount) AS discount_given,
+ SUM(item_total + discount_amount) AS gross_sales
+FROM pizzadb_orders_items
+GROUP BY category
+ORDER BY revenue DESC;
+Identify Orders Where Discount > 30% of Total Value 
+SELECT *
+FROM (
+ SELECT 
+ order_id,
+ SUM(quantity * unit_price) AS total,
+ SUM(discount_amount) AS discount,
+ ROUND(SUM(discount_amount) * 100 / SUM(quantity * unit_price), 2) AS 
+discount_pct
+ FROM pizzadb_orders_items
+ GROUP BY order_id
+) t
+WHERE discount_pct > 30
+ORDER BY discount_pct DESC;
+Revenue and Orders by Hour of Day 
+SELECT 
+ HOUR(CAST(order_time AS TIMESTAMP)) AS order_hour,
+ COUNT(DISTINCT order_id) AS total_orders,
+ SUM(total_amount) AS total_revenue
+FROM pizzadb_orders
+WHERE CAST(order_time AS TIMESTAMP) >= current_date - INTERVAL '7' day
+GROUP BY HOUR(CAST(order_time AS TIMESTAMP))
+ORDER BY HOUR(CAST(order_time AS TIMESTAMP));
+Running Total of Revenue by Store 
+SELECT 
+ store_id,
+ DATE(CAST(order_time AS TIMESTAMP)) AS order_date,
+ SUM(total_amount) AS daily_revenue,
+ SUM(SUM(total_amount)) OVER (
+ PARTITION BY store_id 
+ ORDER BY DATE(CAST(order_time AS TIMESTAMP))
+ ) AS running_total
+FROM pizzadb_orders
+GROUP BY store_id, DATE(CAST(order_time AS TIMESTAMP))
+ORDER BY store_id, DATE(CAST(order_time AS TIMESTAMP));
+Customers with High Frequency and High Value Orders 
+SELECT customer_id,
+ COUNT(order_id) AS total_orders,
+ SUM(total_amount) AS total_spent
+FROM pizzadb_orders
+WHERE CAST(order_time AS TIMESTAMP) >= current_date - INTERVAL '30' day
+GROUP BY customer_id
+HAVING COUNT(order_id) >= 5 AND SUM(total_amount) >= 500
+ORDER BY total_spent DESC;
+Most Discounted Products by Total Discount Given 
+SELECT sku_id, item_name, SUM(discount_amount) AS total_discount
+FROM pizzadb_orders_items
+GROUP BY sku_id, item_name
+ORDER BY total_discount DESC
+LIMIT 10;
